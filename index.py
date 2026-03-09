@@ -26,8 +26,6 @@ STANDBY_COST = 1.0
 MINING_COST = 2.0
 SAFETY_RESERVE = 5.0
 
-# Egyetlen inditasi pont: index.py
-# DEBUG=True: nincs input kerdes, fix ertekekkel indul (VS Code Run-barat).
 DEBUG = True
 DEBUG_MAP_FILE = "mars_map_50x50 1.csv"
 DEBUG_HOURS = 1680  # 70 nap
@@ -97,12 +95,9 @@ def neighbors_8(pos: Pos, grid: Grid) -> List[Pos]:
                 continue
             if grid[ny][nx] == "#":
                 continue
-
-            # Atlos mozgasnal ne lehessen akadaly "sarkan" atcsuszni.
             if dx != 0 and dy != 0:
                 if grid[y][x + dx] == "#" or grid[y + dy][x] == "#":
                     continue
-
             result.append((nx, ny))
     return result
 
@@ -201,19 +196,13 @@ class RoverSimulator:
         dx = bx - ax
         dy = by - ay
 
-        # Csak szomszedos mezore lephet.
         if max(abs(dx), abs(dy)) != 1:
             return False
-
-        # Celmezonek jarhatonak kell lennie.
         if self.grid[by][bx] == "#":
             return False
-
-        # Atlosnal a ket ortogonalis koztes irany sem lehet akadaly.
         if dx != 0 and dy != 0:
             if self.grid[ay][ax + dx] == "#" or self.grid[ay + dy][ax] == "#":
                 return False
-
         return True
 
     def _conservative_energy_needed(self, go_steps: int, back_steps: int, mine: bool) -> float:
@@ -276,8 +265,6 @@ class RoverSimulator:
             self.current_path = [self.pos]
             return
 
-        # Hazateres csak vegjatekban: ha az ido mar csak a biztos hazaeresre eleg.
-        # (lassu sebesseggel, 1 blokk/tick, +1 tick puffer)
         min_ticks_back_safe = dist_to_start
         if remaining_ticks <= (min_ticks_back_safe + 1):
             self.return_mode = True
@@ -364,12 +351,10 @@ class RoverSimulator:
                         for _ in range(speed):
                             if len(self.current_path) <= 1:
                                 break
-
                             next_pos = self.current_path[1]
                             if not self._can_move_between(self.pos, next_pos):
                                 action = "wait_blocked_step"
                                 break
-
                             self.current_path.pop(0)
                             self.pos = self.current_path[0]
                             moved += 1
@@ -412,43 +397,20 @@ class RoverSimulator:
             writer = csv.writer(f)
             writer.writerow(
                 [
-                    "tick",
-                    "hour",
-                    "day_phase",
-                    "x",
-                    "y",
-                    "action",
-                    "speed",
-                    "moved_cells",
-                    "battery",
-                    "collected_b",
-                    "collected_y",
-                    "collected_g",
-                    "total_collected",
-                    "distance_travelled",
-                    "target_x",
-                    "target_y",
+                    "tick", "hour", "day_phase", "x", "y", "action", "speed",
+                    "moved_cells", "battery", "collected_b", "collected_y",
+                    "collected_g", "total_collected", "distance_travelled",
+                    "target_x", "target_y",
                 ]
             )
             for row in self.logs:
                 writer.writerow(
                     [
-                        row.tick,
-                        row.hour,
-                        row.day_phase,
-                        row.x,
-                        row.y,
-                        row.action,
-                        row.speed,
-                        row.moved_cells,
-                        row.battery,
-                        row.collected_b,
-                        row.collected_y,
-                        row.collected_g,
-                        row.total_collected,
-                        row.distance_travelled,
-                        row.target_x,
-                        row.target_y,
+                        row.tick, row.hour, row.day_phase, row.x, row.y,
+                        row.action, row.speed, row.moved_cells, row.battery,
+                        row.collected_b, row.collected_y, row.collected_g,
+                        row.total_collected, row.distance_travelled,
+                        row.target_x, row.target_y,
                     ]
                 )
 
@@ -460,6 +422,15 @@ CELL_COLORS = {
     "Y": "#e2b52b",
     "G": "#4e9f57",
     "S": "#c64545",
+}
+
+CELL_COLORS_NIGHT = {
+    ".": "#1a1f2e",
+    "#": "#2a2d33",
+    "B": "#1a3a6b",
+    "Y": "#6b520f",
+    "G": "#1f4a26",
+    "S": "#6b1f1f",
 }
 
 
@@ -482,6 +453,7 @@ class DashboardApp:
         self.max_tick = len(logs) - 1
         self.current_tick = 0
         self.playing = False
+        self.last_phase: Optional[str] = None
 
         self.cell_size = 12
         self.map_w = 50 * self.cell_size
@@ -492,10 +464,15 @@ class DashboardApp:
 
         self.delay_var = tk.IntVar(value=300)
         self.tick_var = tk.IntVar(value=0)
-        self.mined_colors = {
+        self.mined_colors_day = {
             "B": blend_with_gray(CELL_COLORS["B"]),
             "Y": blend_with_gray(CELL_COLORS["Y"]),
             "G": blend_with_gray(CELL_COLORS["G"]),
+        }
+        self.mined_colors_night = {
+            "B": blend_with_gray(CELL_COLORS_NIGHT["B"], gray=30, mix=0.5),
+            "Y": blend_with_gray(CELL_COLORS_NIGHT["Y"], gray=30, mix=0.5),
+            "G": blend_with_gray(CELL_COLORS_NIGHT["G"], gray=30, mix=0.5),
         }
 
         self._build_ui()
@@ -512,23 +489,34 @@ class DashboardApp:
         right = tk.Frame(main)
         right.pack(side="left", fill="both", expand=True, padx=(10, 0))
 
-        self.map_canvas = tk.Canvas(left, width=self.map_w, height=self.map_h, bg="#f5f1e8", highlightthickness=0)
+        self.map_canvas = tk.Canvas(
+            left, width=self.map_w, height=self.map_h,
+            bg="#f5f1e8", highlightthickness=0
+        )
         self.map_canvas.pack()
 
         controls = tk.Frame(right)
         controls.pack(fill="x")
 
-        tk.Button(controls, text="Lejatszas", command=self.play).pack(side="left")
-        tk.Button(controls, text="Szünet", command=self.pause).pack(side="left", padx=(6, 0))
-        tk.Button(controls, text="Reset", command=self.reset).pack(side="left", padx=(6, 0))
-        tk.Button(controls, text="Lepes +1", command=self.step_once).pack(side="left", padx=(6, 0))
+        self.btn_play = tk.Button(controls, text="Lejatszas", command=self.play)
+        self.btn_play.pack(side="left")
+        self.btn_pause = tk.Button(controls, text="Szünet", command=self.pause)
+        self.btn_pause.pack(side="left", padx=(6, 0))
+        self.btn_reset = tk.Button(controls, text="Reset", command=self.reset)
+        self.btn_reset.pack(side="left", padx=(6, 0))
+        self.btn_step = tk.Button(controls, text="Lepes +1", command=self.step_once)
+        self.btn_step.pack(side="left", padx=(6, 0))
 
-        tk.Label(controls, text="Kesleltetes (ms):").pack(side="left", padx=(12, 4))
-        tk.Scale(controls, from_=100, to=2000, orient="horizontal", variable=self.delay_var, length=220).pack(
-            side="left"
+        self.lbl_delay = tk.Label(controls, text="Kesleltetes (ms):")
+        self.lbl_delay.pack(side="left", padx=(12, 4))
+        self.scale_delay = tk.Scale(
+            controls, from_=10, to=2000,
+            orient="horizontal", variable=self.delay_var, length=220
         )
+        self.scale_delay.pack(side="left")
 
-        tk.Label(right, text="Tick:").pack(anchor="w", pady=(8, 0))
+        self.lbl_tick = tk.Label(right, text="Tick:")
+        self.lbl_tick.pack(anchor="w", pady=(8, 0))
         self.tick_scale = tk.Scale(
             right,
             from_=0,
@@ -541,11 +529,25 @@ class DashboardApp:
         self.tick_scale.pack(anchor="w")
 
         self.info_text = tk.StringVar(value="")
-        tk.Label(right, textvariable=self.info_text, justify="left", font=("Consolas", 10)).pack(anchor="w", pady=(8, 8))
+        self.info_text_label = tk.Label(
+            right, textvariable=self.info_text,
+            justify="left", font=("Consolas", 10)
+        )
+        self.info_text_label.pack(anchor="w", pady=(8, 8))
 
-        tk.Label(right, text="Akkumulator ido diagram (0..100)").pack(anchor="w")
-        self.battery_canvas = tk.Canvas(right, width=620, height=180, bg="#ffffff", highlightbackground="#cccccc")
+        self.lbl_battery = tk.Label(right, text="Akkumulator ido diagram (0..100)")
+        self.lbl_battery.pack(anchor="w")
+        self.battery_canvas = tk.Canvas(
+            right, width=620, height=180,
+            bg="#ffffff", highlightbackground="#cccccc"
+        )
         self.battery_canvas.pack(anchor="w", pady=(2, 8))
+
+        # All widgets that need bg/fg theming
+        self.theme_frames = [main, left, right, controls]
+        self.theme_labels = [self.lbl_delay, self.lbl_tick, self.lbl_battery, self.info_text_label]
+        self.theme_scales = [self.tick_scale, self.scale_delay]
+        self.theme_buttons = [self.btn_play, self.btn_pause, self.btn_reset, self.btn_step]
 
     def _draw_static_map(self) -> None:
         self.rect_ids: List[List[int]] = []
@@ -574,19 +576,58 @@ class DashboardApp:
         self.path_line = self.map_canvas.create_line(0, 0, 0, 0, fill="#ff6f3c", width=2)
         self.rover_dot = self.map_canvas.create_oval(0, 0, 0, 0, fill="#ff2222", outline="#7a0000")
 
-    def _update_mined_visuals(self, tick: int) -> None:
-        # Slider visszalepes miatt minden rendernel ujraallitjuk az erc szineket.
+    def _apply_theme(self, phase: str) -> None:
+        if phase == self.last_phase:
+            return
+        self.last_phase = phase
+
+        if phase == "day":
+            bg        = "#fff7e8"
+            fg        = "#1a1a1a"
+            btn_bg    = "#e8dcc8"
+            btn_fg    = "#1a1a1a"
+            scale_bg  = "#f0e8d5"
+            chart_bg  = "#ffffff"
+            map_bg    = "#f5f1e8"
+        else:
+            bg        = "#0d1117"
+            fg        = "#c9d1d9"
+            btn_bg    = "#1e2733"
+            btn_fg    = "#c9d1d9"
+            scale_bg  = "#161b22"
+            chart_bg  = "#0d1117"
+            map_bg    = "#0a0e14"
+
+        self.root.configure(bg=bg)
+        self.map_canvas.configure(bg=map_bg)
+        self.battery_canvas.configure(bg=chart_bg)
+
+        for w in self.theme_frames:
+            w.configure(bg=bg)
+        for w in self.theme_labels:
+            w.configure(bg=bg, fg=fg)
+        for w in self.theme_scales:
+            w.configure(bg=scale_bg, fg=fg, troughcolor=btn_bg)
+        for w in self.theme_buttons:
+            w.configure(bg=btn_bg, fg=btn_fg, activebackground=bg, activeforeground=fg)
+
+    def _update_mined_visuals(self, tick: int, phase: str) -> None:
+        cell_colors = CELL_COLORS if phase == "day" else CELL_COLORS_NIGHT
+        mined_colors = self.mined_colors_day if phase == "day" else self.mined_colors_night
+
         for y, row in enumerate(self.grid):
             for x, cell in enumerate(row):
                 if cell in MINERAL_TYPES:
-                    self.map_canvas.itemconfig(self.rect_ids[y][x], fill=CELL_COLORS[cell])
+                    self.map_canvas.itemconfig(self.rect_ids[y][x], fill=cell_colors[cell])
+                elif cell in cell_colors:
+                    self.map_canvas.itemconfig(self.rect_ids[y][x], fill=cell_colors[cell])
 
         for row in self.logs[: tick + 1]:
             if row.action == "mine":
                 x, y = row.x, row.y
                 cell = self.grid[y][x]
                 if cell in MINERAL_TYPES:
-                    self.map_canvas.itemconfig(self.rect_ids[y][x], fill=self.mined_colors[cell])
+                    self.map_canvas.itemconfig(self.rect_ids[y][x], fill=mined_colors[cell])
 
     def _set_rover(self, x: int, y: int) -> None:
         r = self.cell_size * 0.4
@@ -605,12 +646,15 @@ class DashboardApp:
             points.extend([px, py])
         self.map_canvas.coords(self.path_line, *points)
 
-    def _draw_battery_chart(self, tick: int) -> None:
+    def _draw_battery_chart(self, tick: int, phase: str) -> None:
         w = 620
         h = 180
         pad = 20
+        line_color = "#60a5fa" if phase == "night" else "#1d4ed8"
+        grid_color = "#334155" if phase == "night" else "#bbbbbb"
+
         self.battery_canvas.delete("all")
-        self.battery_canvas.create_rectangle(pad, pad, w - pad, h - pad, outline="#bbbbbb")
+        self.battery_canvas.create_rectangle(pad, pad, w - pad, h - pad, outline=grid_color)
 
         if tick <= 0:
             return
@@ -623,7 +667,7 @@ class DashboardApp:
             y = (h - pad) - (row.battery / 100.0) * (h - 2 * pad)
             points.extend([x, y])
         if len(points) >= 4:
-            self.battery_canvas.create_line(*points, fill="#1d4ed8", width=2, smooth=True)
+            self.battery_canvas.create_line(*points, fill=line_color, width=2, smooth=True)
 
     def _render_tick(self, tick: int) -> None:
         tick = max(0, min(tick, self.max_tick))
@@ -631,12 +675,12 @@ class DashboardApp:
         self.current_tick = tick
         self.tick_var.set(tick)
 
-        self.root.configure(bg="#fff7e8" if row.day_phase == "day" else "#131722")
-
-        self._update_mined_visuals(tick)
+        phase = row.day_phase
+        self._apply_theme(phase)
+        self._update_mined_visuals(tick, phase)
         self._set_path(tick)
         self._set_rover(row.x, row.y)
-        self._draw_battery_chart(tick)
+        self._draw_battery_chart(tick, phase)
 
         info = (
             f"tick: {row.tick} | ido: {row.hour:.1f} h | napszak: {row.day_phase}\n"
@@ -697,7 +741,7 @@ def main() -> None:
         else:
             hours = DEBUG_HOURS
 
-    map_path = Path(map_file)
+    map_path = Path(__file__).parent / map_file
     grid, start = load_map(map_path)
 
     simulator = RoverSimulator(grid=grid, start=start, mission_hours=hours)
