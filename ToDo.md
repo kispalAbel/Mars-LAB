@@ -1,0 +1,1 @@
+A block-okat lecserélni rendes textúrára.
