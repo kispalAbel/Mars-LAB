@@ -31,6 +31,27 @@ DEBUG_MAP_FILE = "mars_map_50x50 1.csv"
 DEBUG_HOURS = 1680  # 70 nap
 RUN_DASHBOARD = True
 
+BASE_DIR = Path(__file__).parent
+PICTURES_DIR = BASE_DIR / "pictures"
+TEXTURE_FILES_DAY = {
+    "#": "bedrock.png",
+    "B": "lapis_ore.png",
+    "Y": "gold_ore.png",
+    "G": "emerald_ore.png",
+}
+TEXTURE_FILES_NIGHT = {
+    "#": "bedrock.png",
+    "B": "deepslate_lapis_ore.png",
+    "Y": "deepslate_gold_ore.png",
+    "G": "deepslate_emerald_ore.png",
+}
+
+WINDOW_MARGIN = 70
+RIGHT_PANEL_MIN_WIDTH = 700
+LAYOUT_PADDING = 24
+BOARD_MIN_CELL_SIZE = 8
+ORE_BACKDROP_SCALE = 0.08
+
 
 @dataclass
 class TickLog:
@@ -455,12 +476,17 @@ class DashboardApp:
         self.playing = False
         self.last_phase: Optional[str] = None
 
-        self.cell_size = 12
-        self.map_w = 50 * self.cell_size
-        self.map_h = 50 * self.cell_size
-
         self.root = tk.Tk()
         self.root.title("Mars Rover Vizualizacio + Dashboard")
+        self._configure_window_geometry()
+
+        self.window_width = self.root.winfo_width()
+        self.window_height = self.root.winfo_height()
+        self.right_panel_width = RIGHT_PANEL_MIN_WIDTH
+        self.cell_size = BOARD_MIN_CELL_SIZE
+        self.map_w = 50 * self.cell_size
+        self.map_h = 50 * self.cell_size
+        self._recalculate_layout()
 
         self.delay_var = tk.IntVar(value=300)
         self.tick_var = tk.IntVar(value=0)
@@ -474,20 +500,58 @@ class DashboardApp:
             "Y": blend_with_gray(CELL_COLORS_NIGHT["Y"], gray=30, mix=0.5),
             "G": blend_with_gray(CELL_COLORS_NIGHT["G"], gray=30, mix=0.5),
         }
+        self.texture_images_day: Dict[str, Optional[tk.PhotoImage]] = {}
+        self.texture_images_night: Dict[str, Optional[tk.PhotoImage]] = {}
+        self.texture_items: List[List[Optional[int]]] = []
+        self.ore_backdrop_items: List[List[Optional[int]]] = []
 
         self._build_ui()
+        self._load_texture_images()
         self._draw_static_map()
         self._render_tick(0)
+        self.root.bind("<Configure>", self._on_root_resize)
+
+    def _configure_window_geometry(self) -> None:
+        screen_w = self.root.winfo_screenwidth()
+        screen_h = self.root.winfo_screenheight()
+        width = max(1000, screen_w - (2 * WINDOW_MARGIN))
+        height = max(700, screen_h - (2 * WINDOW_MARGIN))
+        self.root.geometry(f"{width}x{height}+{WINDOW_MARGIN}+{WINDOW_MARGIN}")
+        self.root.update_idletasks()
+
+    def _recalculate_layout(self) -> None:
+        available_w = max(1000, self.window_width)
+        available_h = max(700, self.window_height)
+
+        self.right_panel_width = max(
+            RIGHT_PANEL_MIN_WIDTH,
+            min(900, int(available_w * 0.42)),
+        )
+        board_available_w = max(
+            BOARD_MIN_CELL_SIZE * 50,
+            available_w - self.right_panel_width - (3 * LAYOUT_PADDING),
+        )
+        board_available_h = max(
+            BOARD_MIN_CELL_SIZE * 50,
+            available_h - (4 * LAYOUT_PADDING),
+        )
+
+        self.cell_size = max(
+            BOARD_MIN_CELL_SIZE,
+            min(board_available_w // 50, board_available_h // 50),
+        )
+        self.map_w = self.cell_size * 50
+        self.map_h = self.cell_size * 50
 
     def _build_ui(self) -> None:
         main = tk.Frame(self.root)
-        main.pack(fill="both", expand=True, padx=8, pady=8)
+        main.pack(fill="both", expand=True, padx=12, pady=12)
 
         left = tk.Frame(main)
         left.pack(side="left", fill="both", expand=False)
 
         right = tk.Frame(main)
-        right.pack(side="left", fill="both", expand=True, padx=(10, 0))
+        right.pack(side="left", fill="both", expand=True, padx=(12, 0))
 
         self.map_canvas = tk.Canvas(
             left, width=self.map_w, height=self.map_h,
@@ -524,7 +588,7 @@ class DashboardApp:
             orient="horizontal",
             variable=self.tick_var,
             command=self.on_tick_slider,
-            length=600,
+            length=max(420, self.right_panel_width - 80),
         )
         self.tick_scale.pack(anchor="w")
 
@@ -538,7 +602,7 @@ class DashboardApp:
         self.lbl_battery = tk.Label(right, text="Akkumulator ido diagram (0..100)")
         self.lbl_battery.pack(anchor="w")
         self.battery_canvas = tk.Canvas(
-            right, width=620, height=180,
+            right, width=max(420, self.right_panel_width - 40), height=180,
             bg="#ffffff", highlightbackground="#cccccc"
         )
         self.battery_canvas.pack(anchor="w", pady=(2, 8))
@@ -549,19 +613,110 @@ class DashboardApp:
         self.theme_scales = [self.tick_scale, self.scale_delay]
         self.theme_buttons = [self.btn_play, self.btn_pause, self.btn_reset, self.btn_step]
 
+    def _load_texture_set(self, texture_files: Dict[str, str]) -> Dict[str, Optional[tk.PhotoImage]]:
+        textures: Dict[str, Optional[tk.PhotoImage]] = {}
+        for cell, filename in texture_files.items():
+            image_path = PICTURES_DIR / filename
+            if image_path.exists():
+                try:
+                    image = tk.PhotoImage(file=str(image_path))
+                    scale_x = max(1, math.ceil(image.width() / self.cell_size))
+                    scale_y = max(1, math.ceil(image.height() / self.cell_size))
+                    scale = max(scale_x, scale_y)
+                    if scale > 1:
+                        image = image.subsample(scale, scale)
+                    textures[cell] = image
+                except tk.TclError:
+                    textures[cell] = None
+            else:
+                textures[cell] = None
+        return textures
+
+    def _load_texture_images(self) -> None:
+        self.texture_images_day = self._load_texture_set(TEXTURE_FILES_DAY)
+        self.texture_images_night = self._load_texture_set(TEXTURE_FILES_NIGHT)
+
+    def _cell_center(self, x: int, y: int) -> Tuple[float, float]:
+        cx = x * self.cell_size + self.cell_size / 2
+        cy = y * self.cell_size + self.cell_size / 2
+        return cx, cy
+
+    def _texture_size(self, image: Optional[tk.PhotoImage]) -> Tuple[int, int]:
+        if image is None:
+            return self.cell_size, self.cell_size
+        return image.width(), image.height()
+
+    def _position_ore_backdrop(self, x: int, y: int, image: Optional[tk.PhotoImage], fill: str) -> None:
+        item_id = self.ore_backdrop_items[y][x]
+        if item_id is None:
+            return
+        width, height = self._texture_size(image)
+        pad_x = max(1, int(width * ORE_BACKDROP_SCALE))
+        pad_y = max(1, int(height * ORE_BACKDROP_SCALE))
+        cx, cy = self._cell_center(x, y)
+        x0 = cx - (width / 2) - pad_x
+        y0 = cy - (height / 2) - pad_y
+        x1 = cx + (width / 2) + pad_x
+        y1 = cy + (height / 2) + pad_y
+        self.map_canvas.coords(item_id, x0, y0, x1, y1)
+        self.map_canvas.itemconfig(item_id, fill=fill, state="normal")
+
+    def _on_root_resize(self, event: tk.Event) -> None:
+        if event.widget is not self.root:
+            return
+
+        new_width = max(1000, event.width)
+        new_height = max(700, event.height)
+        if new_width == self.window_width and new_height == self.window_height:
+            return
+
+        self.window_width = new_width
+        self.window_height = new_height
+        old_cell_size = self.cell_size
+        self._recalculate_layout()
+
+        self.tick_scale.configure(length=max(420, self.right_panel_width - 80))
+        self.battery_canvas.configure(width=max(420, self.right_panel_width - 40))
+
+        if self.cell_size != old_cell_size:
+            self._load_texture_images()
+            self._draw_static_map()
+        self._render_tick(self.current_tick)
+
     def _draw_static_map(self) -> None:
+        self.map_canvas.delete("all")
+        self.map_canvas.configure(width=self.map_w, height=self.map_h)
         self.rect_ids: List[List[int]] = []
+        self.texture_items = []
+        self.ore_backdrop_items = []
         for y, row in enumerate(self.grid):
             line_ids: List[int] = []
+            texture_line_ids: List[Optional[int]] = []
+            ore_backdrop_line_ids: List[Optional[int]] = []
             for x, cell in enumerate(row):
-                color = CELL_COLORS.get(cell, "#000000")
+                color = CELL_COLORS["." if cell in MINERAL_TYPES else cell]
                 x0 = x * self.cell_size
                 y0 = y * self.cell_size
                 x1 = x0 + self.cell_size
                 y1 = y0 + self.cell_size
                 rid = self.map_canvas.create_rectangle(x0, y0, x1, y1, fill=color, outline="")
                 line_ids.append(rid)
+
+                ore_backdrop_id: Optional[int] = None
+                if cell in MINERAL_TYPES:
+                    ore_backdrop_id = self.map_canvas.create_rectangle(0, 0, 0, 0, outline="", width=0)
+                ore_backdrop_line_ids.append(ore_backdrop_id)
+
+                texture_id: Optional[int] = None
+                if cell in self.texture_images_day and self.texture_images_day[cell] is not None:
+                    cx, cy = self._cell_center(x, y)
+                    texture_id = self.map_canvas.create_image(
+                        cx, cy, image=self.texture_images_day[cell], anchor="center"
+                    )
+                texture_line_ids.append(texture_id)
             self.rect_ids.append(line_ids)
+            self.texture_items.append(texture_line_ids)
+            self.ore_backdrop_items.append(ore_backdrop_line_ids)
 
         sx, sy = self.start
         self.map_canvas.create_rectangle(
@@ -614,20 +769,27 @@ class DashboardApp:
     def _update_mined_visuals(self, tick: int, phase: str) -> None:
         cell_colors = CELL_COLORS if phase == "day" else CELL_COLORS_NIGHT
         mined_colors = self.mined_colors_day if phase == "day" else self.mined_colors_night
+        texture_images = self.texture_images_day if phase == "day" else self.texture_images_night
 
         for y, row in enumerate(self.grid):
             for x, cell in enumerate(row):
+                base_cell = "." if cell in MINERAL_TYPES else cell
+                if base_cell in cell_colors:
+                    self.map_canvas.itemconfig(self.rect_ids[y][x], fill=cell_colors[base_cell])
                 if cell in MINERAL_TYPES:
-                    self.map_canvas.itemconfig(self.rect_ids[y][x], fill=cell_colors[cell])
-                elif cell in cell_colors:
-                    self.map_canvas.itemconfig(self.rect_ids[y][x], fill=cell_colors[cell])
+                    texture = texture_images.get(cell)
+                    if self.texture_items[y][x] is not None and texture is not None:
+                        self.map_canvas.itemconfig(self.texture_items[y][x], image=texture)
+                    self._position_ore_backdrop(x, y, texture, cell_colors[cell])
+                elif self.ore_backdrop_items[y][x] is not None:
+                    self.map_canvas.itemconfig(self.ore_backdrop_items[y][x], state="hidden")
 
         for row in self.logs[: tick + 1]:
             if row.action == "mine":
                 x, y = row.x, row.y
                 cell = self.grid[y][x]
                 if cell in MINERAL_TYPES:
-                    self.map_canvas.itemconfig(self.rect_ids[y][x], fill=mined_colors[cell])
+                    self.map_canvas.itemconfig(self.ore_backdrop_items[y][x], fill=mined_colors[cell])
 
     def _set_rover(self, x: int, y: int) -> None:
         r = self.cell_size * 0.4
@@ -647,7 +809,7 @@ class DashboardApp:
         self.map_canvas.coords(self.path_line, *points)
 
     def _draw_battery_chart(self, tick: int, phase: str) -> None:
-        w = 620
+        w = int(self.battery_canvas.cget("width"))
         h = 180
         pad = 20
         line_color = "#60a5fa" if phase == "night" else "#1d4ed8"
