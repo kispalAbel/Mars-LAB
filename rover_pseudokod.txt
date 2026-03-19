@@ -1,0 +1,114 @@
+
+MARS ROVER – PSZEUDÓKÓD (a mellékelt index.py alapján)
+
+--- FŐPROGRAM ---
+main():
+    ha DEBUG igaz:
+        map_fajl = DEBUG_MAP_FILE
+        mission_hours = DEBUG_HOURS
+    különben:
+        bekéri a felhasználótól a map_fájlt és időkeretet
+
+    betölti a térképet → grid, start
+    rover = RoverSimulator(grid, start, mission_hours)
+    rover.run()
+
+    ha RUN_DASHBOARD igaz:
+        dashboard = DashboardApp(rover.logs, grid, start)
+        dashboard.run()
+    különben:
+        rover.print_summary()
+        rover.write_log_csv()
+
+--- TÉRKÉP BETÖLTÉSE ---
+load_map(path):
+    beolvassa CSV fájlból az 50×50 térképet
+    ellenőrzi a méreteket
+    megtalálja az S indulópontot
+    visszaadja: grid, start
+
+--- A* ÚTVONALTERVEZŐ ---
+a_star(grid, start, goal):
+    ha start == goal → vissza (start)
+    inicializálás: open_heap, g_score, came_from
+    amíg open_heap nem üres:
+        current = legkisebb f-score elem
+        ha current == goal → útvonal rekonstrukció
+        minden szomszéd (8 irány) esetén:
+            ha akadály → kihagy
+            számolja tentative_g-t
+            ha jobb érték → frissít
+    ha nincs útvonal → None
+
+--- SZIMULÁCIÓ OSZTÁLY ---
+RoverSimulator.__init__(grid, start, mission_hours):
+    kiszámolja ticks = mission_hours / 0.5
+    beállítja kezdő állapotot:
+        pos = start
+        battery = 100
+        minerals listájának beolvasása
+
+--- ÁSVÁNYOK KINYERÉSE ---
+_collect_minerals():
+    grid bejárása
+    pozíciók kilistázása
+
+--- ÚTVONAL LEKÉRÉSE (cache-eléssel) ---
+_get_path(a, b):
+    ha nincs cache-ben → futtat A*
+    visszaadja az útvonalat
+
+--- CÉLPONT KIVÁLASZTÁSA ---
+_pick_target():
+    minden be nem gyűjtött ásvány esetén:
+        számolja útvonalat oda és vissza
+        értékelési score = 1 / (össz.út)
+    a legjobb score-ú lesz a cél
+
+--- SEBESSÉG POLITIKA ---
+_speed_policy(day):
+    ha nappal: akku alapján 3/2/1
+    ha éjjel: 2 vagy 1
+
+_max_affordable_speed(requested):
+    energia + nappali töltés elég-e? → visszaadja max sebességet
+
+--- VISSZATÉRÉSI LOGIKA ---
+_ensure_return_priority():
+    ha kevés idő van visszatérni → return_mode = True
+    ha return_mode → cél = start pont
+
+--- LOGOLÁS ÉS AKKU ---
+_log_tick():
+    tick adatok kiírása logba
+
+_apply_day_charge():
+    ha nappal → akku +10
+
+--- A SZIMULÁCIÓ FUTTATÁSA ---
+run():
+    minden tick-ben:
+        frissít return prioritás
+        ha ásványon áll és nem gyűjtötte még:
+            ha akku elég → bányászik
+            különben standby
+        különben ha nincs cél:
+            target = _pick_target()
+            ha nincs → hazatérés
+        ha cél van és van út:
+            sebesség = min(elérhető, út hossza)
+            ha sebesség > 0:
+                mozgatás sebesség lépést
+                akku fogyasztás = 2 * v²
+                ha elérte célt → törli a célt
+            különben standby
+        akku töltés nappal
+        logolás
+    a végén, ha nem start-on → hazatérés
+
+--- DASHBOARD ---
+DashboardApp: megjeleníti
+    térképet
+    rover pozícióját
+    fényviszonyokat (nappal/éjszaka)
+    akku grafikonját
