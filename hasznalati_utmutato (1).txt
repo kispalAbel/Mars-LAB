@@ -1,0 +1,40 @@
+====================================================
+      MARS ROVER SZIMULATOR - HASZNALATI UTMUTATO
+====================================================
+
+KÖVETELMÉNYEK
+  - Python 3.9+  (telepítéskor: "Add Python to PATH")
+  - Visual Studio Code
+  - VS Code Python extension: Ctrl+Shift+X → "Python" → Install
+
+FÁJLSTRUKTÚRA
+  Minden fájl ugyanabba a mappába kerüljön:
+    index.py
+    mars_map_50x50 1.csv
+    pictures/  (opcionális - textúraképek)
+
+INDÍTÁS
+  1. VS Code: File → Open Folder → mars_rover/ mappa
+  2. Ctrl+Shift+P → "Python: Select Interpreter" → Python 3.9+
+  3. Nyisd meg az index.py-t → kattints a ▶ gombra (Ctrl+F5)
+  A szimuláció lefut, majd megnyílik a dashboard ablak.
+  Ha az ablak nem látható: Alt+Tab vagy tálca.
+
+TÉRKÉP (CSV, 50×50)
+  .  járható terep    #  fal
+  S  start (1 db!)    B/Y/G  ásványok
+
+DASHBOARD KEZELÉSE
+  [ Lejátszás ] [ Szünet ] [ Reset ] [ Lépés +1 ]
+  Késleltetés csúszka: animáció sebessége (10–2000 ms)
+  Tick csúszka: ugrás bármely pillanathoz
+  Nappal = világos téma | Éjszaka = sötét téma
+
+HIBÁK
+  "No module named tkinter"     → Python újratelepítés, "tcl/tk" bepipálva
+  "No Python interpreter"       → Ctrl+Shift+P → Select Interpreter
+  "Invalid map height/width"    → CSV nem 50×50
+  "Expected exactly one 'S'"    → Pontosan 1 db S kell a térképen
+  ▶ gomb hiányzik               → Python extension telepítése
+
+====================================================
